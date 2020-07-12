@@ -1,6 +1,7 @@
 {
   "checks" : {
       "ExposeAll": false,
-      "NoTopLevelSignature": false 
+      "NoTopLevelSignature": false,
+      "ImportAll": false
   }
 }

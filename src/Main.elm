@@ -1,10 +1,12 @@
 module Main exposing (..)
 
+import Array exposing (..)
 import Browser
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import List
+import Time
 
 
 
@@ -12,7 +14,12 @@ import List
 
 
 main =
-    Browser.sandbox { init = init, update = update, view = view }
+    Browser.element
+        { init = init
+        , subscriptions = subscriptions
+        , update = update
+        , view = view
+        }
 
 
 
@@ -20,7 +27,7 @@ main =
 
 
 type alias Combination =
-    List Int
+    Array Int
 
 
 
@@ -53,14 +60,16 @@ initialForm =
     }
 
 
-init : Model
-init =
-    { isPlaying = False
-    , lastDrawn = Nothing
-    , players = []
-    , combination = []
-    , form = initialForm
-    }
+init : () -> ( Model, Cmd Msg )
+init _ =
+    ( { isPlaying = False
+      , lastDrawn = Nothing
+      , players = []
+      , combination = []
+      , form = initialForm
+      }
+    , Cmd.none
+    )
 
 
 
@@ -72,20 +81,23 @@ type Msg
     | StartGame
     | SetPlayerName String
     | AddToPlayerCombination Int
+    | DrawNext
 
 
-update : Msg -> Model -> Model
+update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         AddPlayer ->
-            { model
+            ( { model
                 | players =
                     model.form :: model.players
                 , form = initialForm
-            }
+              }
+            , Cmd.none
+            )
 
         StartGame ->
-            { model | isPlaying = not model.isPlaying }
+            ( { model | isPlaying = not model.isPlaying, combination = [ 1, 2, 3, 4, 5, 6, 9 ] }, Cmd.none )
 
         SetPlayerName value ->
             let
@@ -95,7 +107,7 @@ update msg model =
                 curForm =
                     { prevForm | name = value }
             in
-            { model | form = curForm }
+            ( { model | form = curForm }, Cmd.none )
 
         AddToPlayerCombination value ->
             let
@@ -109,7 +121,10 @@ update msg model =
                     else
                         { prevForm | combination = List.filter (\n -> n /= value) prevForm.combination }
             in
-            { model | form = curForm }
+            ( { model | form = curForm }, Cmd.none )
+
+        DrawNext ->
+            ( { model | lastDrawn = Just 100 }, Cmd.none )
 
 
 
@@ -125,6 +140,15 @@ selected n combination =
         ""
 
 
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    if model.isPlaying then
+        Time.every 1000 (\_ -> DrawNext)
+
+    else
+        Sub.none
+
+
 view : Model -> Html Msg
 view model =
     div []
@@ -135,7 +159,7 @@ view model =
         , div []
             [ text
                 (if model.isPlaying then
-                    "Game is LIVE"
+                    "Game is LIVE" ++ String.fromInt (Maybe.withDefault 0 model.lastDrawn)
 
                  else
                     "Game is IDLE"

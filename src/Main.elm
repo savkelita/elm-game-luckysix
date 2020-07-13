@@ -6,7 +6,9 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import List
+import Random
 import Time
+-- import List.Extra exposing (..)
 
 
 
@@ -27,7 +29,7 @@ main =
 
 
 type alias Combination =
-    Array Int
+    List Int
 
 
 
@@ -71,17 +73,21 @@ init _ =
     , Cmd.none
     )
 
+generateRandomNumber : Cmd Msg
+generateRandomNumber =
+    Random.generate NewRandomNumber (Random.int 1 48)
 
 
 -- UPDATE
 
 
 type Msg
-    = AddPlayer
-    | StartGame
+    = StartGame
+    | NewRandomNumber Int
+    | AddPlayer
     | SetPlayerName String
     | AddToPlayerCombination Int
-    | DrawNext
+    | DrawNumber
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -97,7 +103,18 @@ update msg model =
             )
 
         StartGame ->
-            ( { model | isPlaying = not model.isPlaying, combination = [ 1, 2, 3, 4, 5, 6, 9 ] }, Cmd.none )
+            ( { model | isPlaying = True }, generateRandomNumber )
+
+        NewRandomNumber number ->
+            if List.length model.combination < 36 then
+                if List.member number model.combination then
+                    (model, generateRandomNumber)
+
+                else
+                    ({ model | combination = number :: model.combination }, generateRandomNumber)
+
+            else
+                ( { model | combination = model.combination }, Cmd.none )
 
         SetPlayerName value ->
             let
@@ -123,10 +140,8 @@ update msg model =
             in
             ( { model | form = curForm }, Cmd.none )
 
-        DrawNext ->
-            ( { model | lastDrawn = Just 100 }, Cmd.none )
-
-
+        DrawNumber ->
+            ( model, Cmd.none )
 
 -- VIEW
 
@@ -143,7 +158,7 @@ selected n combination =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     if model.isPlaying then
-        Time.every 1000 (\_ -> DrawNext)
+        Time.every 1000 (\_ -> DrawNumber)
 
     else
         Sub.none
@@ -159,7 +174,7 @@ view model =
         , div []
             [ text
                 (if model.isPlaying then
-                    "Game is LIVE" ++ String.fromInt (Maybe.withDefault 0 model.lastDrawn)
+                    "Game is LIVE " ++ String.fromInt (Maybe.withDefault 0 model.lastDrawn)
 
                  else
                     "Game is IDLE"
@@ -181,7 +196,7 @@ view model =
                     )
             )
         , div []
-            (List.map (\x -> div [] [ text (String.fromInt x) ]) model.form.combination)
+            (List.map (\x -> div [] [ text (String.fromInt x) ]) model.combination)
         ]
 
 

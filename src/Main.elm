@@ -6,9 +6,10 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import List
+import List.Extra exposing (elemIndex, getAt)
+import Process
 import Random
-import Time
--- import List.Extra exposing (..)
+import Task
 
 
 
@@ -24,16 +25,8 @@ main =
         }
 
 
-
--- Combination
-
-
 type alias Combination =
     List Int
-
-
-
--- Player
 
 
 type alias Player =
@@ -73,9 +66,17 @@ init _ =
     , Cmd.none
     )
 
+
 generateRandomNumber : Cmd Msg
 generateRandomNumber =
-    Random.generate NewRandomNumber (Random.int 1 48)
+    Random.generate GameCombination (Random.int 1 48)
+
+
+delay : Float -> Cmd Msg
+delay time =
+    Process.sleep time
+        |> Task.perform (\_ -> GameInProgress)
+
 
 
 -- UPDATE
@@ -83,11 +84,11 @@ generateRandomNumber =
 
 type Msg
     = StartGame
-    | NewRandomNumber Int
+    | GameCombination Int
     | AddPlayer
     | SetPlayerName String
     | AddToPlayerCombination Int
-    | DrawNumber
+    | GameInProgress
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -103,18 +104,18 @@ update msg model =
             )
 
         StartGame ->
-            ( { model | isPlaying = True }, generateRandomNumber )
+            ( model, generateRandomNumber )
 
-        NewRandomNumber number ->
-            if List.length model.combination < 36 then
+        GameCombination number ->
+            if List.length model.combination < 35 then
                 if List.member number model.combination then
-                    (model, generateRandomNumber)
+                    ( model, generateRandomNumber )
 
                 else
-                    ({ model | combination = number :: model.combination }, generateRandomNumber)
+                    ( { model | combination = number :: model.combination }, generateRandomNumber )
 
             else
-                ( { model | combination = model.combination }, Cmd.none )
+                ( { model | combination = model.combination, isPlaying = True }, delay 1000 )
 
         SetPlayerName value ->
             let
@@ -136,12 +137,48 @@ update msg model =
                         { prevForm | combination = value :: prevForm.combination }
 
                     else
-                        { prevForm | combination = List.filter (\n -> n /= value) prevForm.combination }
+                        { prevForm
+                            | combination =
+                                prevForm.combination
+                                    |> List.filter (\n -> n /= value)
+                        }
             in
             ( { model | form = curForm }, Cmd.none )
 
-        DrawNumber ->
-            ( model, Cmd.none )
+        GameInProgress ->
+            drawNumber model
+
+
+drawNumber : Model -> ( Model, Cmd Msg )
+drawNumber model =
+    if model.isPlaying then
+        case model.lastDrawn of
+            Nothing ->
+                ( { model | lastDrawn = model.combination |> List.head }, delay 1000 )
+
+            Just jld ->
+                let
+                    curElemIndex =
+                        model.combination |> elemIndex jld
+
+                    combinationLen =
+                        model.combination |> List.length
+                in
+                case curElemIndex of
+                    Nothing ->
+                        ( model, Cmd.none )
+
+                    Just cei ->
+                        if cei < combinationLen - 1 then
+                            ( { model | lastDrawn = getAt (cei + 1) model.combination }, delay 1000 )
+
+                        else
+                            ( { model | isPlaying = False, lastDrawn = Nothing, combination = [] }, Cmd.none )
+
+    else
+        ( model, Cmd.none )
+
+
 
 -- VIEW
 
@@ -155,33 +192,68 @@ selected n combination =
         ""
 
 
-subscriptions : Model -> Sub Msg
-subscriptions model =
-    if model.isPlaying then
-        Time.every 1000 (\_ -> DrawNumber)
+blink : Int -> Maybe Int -> String
+blink n ld =
+    case ld of
+        Nothing ->
+            ""
 
-    else
-        Sub.none
+        Just i ->
+            if i == n then
+                "red"
+
+            else
+                ""
+
+
+foo : Maybe Int -> String
+foo a =
+    case a of
+        Nothing ->
+            ""
+
+        Just s ->
+            String.fromInt s
+
+
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    Sub.none
 
 
 view : Model -> Html Msg
 view model =
     div []
-        [ button [ onClick StartGame ] [ text "Start Game" ]
-        , button [ onClick AddPlayer, disabled (validateForm model.form) ] [ text "Add Player" ]
-        , input [ onInput SetPlayerName, value model.form.name ] []
-        , div [] (List.map (\n -> div [] [ text n.name ]) model.players)
-        , div []
+        [ div []
             [ text
                 (if model.isPlaying then
-                    "Game is LIVE " ++ String.fromInt (Maybe.withDefault 0 model.lastDrawn)
+                    "Game Is Live"
 
                  else
-                    "Game is IDLE"
+                    "Game Is IDLE"
                 )
+            , span [] [ text (foo model.lastDrawn) ]
             ]
+        , button [ onClick StartGame ] [ text "Start Game" ]
+        , button [ onClick AddPlayer, disabled (validateForm model.form) ] [ text "Add Player" ]
+        , input [ onInput SetPlayerName, value model.form.name ] []
         , div []
-            [ text model.form.name ]
+            (model.players
+                |> List.map
+                    (\player ->
+                        div []
+                            [ text player.name
+                            , div []
+                                (player.combination
+                                    |> List.map
+                                        (\n ->
+                                            span [ style "color" (blink n model.lastDrawn) ]
+                                                [ text (String.fromInt n) ]
+                                        )
+                                )
+                            ]
+                    )
+            )
         , div [ style "width" "200px", style "display" "flex", style "flex-wrap" "wrap" ]
             (List.range 1 48
                 |> List.map
@@ -195,8 +267,7 @@ view model =
                             [ text (String.fromInt n) ]
                     )
             )
-        , div []
-            (List.map (\x -> div [] [ text (String.fromInt x) ]) model.combination)
+        , div [] [ text (String.fromInt (List.length model.combination)) ]
         ]
 
 

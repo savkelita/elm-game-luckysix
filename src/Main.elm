@@ -6,7 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import List
-import List.Extra exposing (elemIndex, getAt)
+import List.Extra exposing (elemIndex, getAt, removeAt)
 import Process
 import Random
 import Task
@@ -215,6 +215,26 @@ foo a =
         Just s ->
             String.fromInt s
 
+-- export const getDrawn = (combination: Array<number>, lastDrawn: ?number, isPlaying: boolean): Array<number> => {
+--   if (isPlaying && lastDrawn != null) { return combination.slice(0, combination.indexOf(lastDrawn) + 1); } return [];
+-- };
+getDrawn : Combination -> Maybe Int -> Bool -> Combination
+getDrawn comb ld ip =
+    if ip then
+        case ld of
+            Just jld ->
+                 let
+                    curElemIndex =
+                        comb |> elemIndex jld
+                    
+                 in
+                 case curElemIndex of
+                    Just cei ->
+                        comb |> removeAt (cei + 1)
+                    Nothing -> []
+
+            Nothing -> []
+    else []
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
@@ -247,8 +267,8 @@ view model =
                                 (player.combination
                                     |> List.map
                                         (\n ->
-                                            span [ style "color" (blink n model.lastDrawn) ]
-                                                [ text (String.fromInt n) ]
+                                            span [ style "color" (if List.member n (getDrawn model.combination model.lastDrawn model.isPlaying) then "red" else "")]
+                                                [ text (String.fromInt n ++ " ,") ]
                                         )
                                 )
                             ]
@@ -268,6 +288,7 @@ view model =
                     )
             )
         , div [] [ text (String.fromInt (List.length model.combination)) ]
+        , div [] 
         ]
 
 

@@ -2,6 +2,7 @@
   "checks" : {
       "ExposeAll": false,
       "NoTopLevelSignature": false,
-      "ImportAll": false
+      "ImportAll": false,
+      "DebugLog": false
   }
 }

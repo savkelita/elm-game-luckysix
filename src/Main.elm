@@ -6,9 +6,10 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import List
-import List.Extra exposing (elemIndex, getAt, inits, removeAt)
+import List.Extra exposing (elemIndex, getAt, inits)
 import Process
 import Random
+import Set
 import Task
 
 
@@ -59,8 +60,8 @@ init : () -> ( Model, Cmd Msg )
 init _ =
     ( { isPlaying = False
       , lastDrawn = Nothing
-      , players = []
-      , combination = []
+      , players = [ { name = "Marko Savic", combination = [ 1, 2, 3, 4, 5, 6 ] } ] -- For testing purposes; Default []
+      , combination = List.range 1 35 -- For testing purposes; Default []
       , form = initialForm
       }
     , Cmd.none
@@ -150,6 +151,15 @@ update msg model =
             drawNumber model
 
         GameIsOver ->
+            -- Check for winners and increase credit.
+            -- Need to write a logic in next interation.
+            let
+                winners =
+                    checkWinners model.players (chunks model.combination)
+
+                _ =
+                    Debug.log "Winners" winners
+            in
             ( model, Cmd.none )
 
 
@@ -158,7 +168,7 @@ drawNumber model =
     if model.isPlaying then
         case model.lastDrawn of
             Nothing ->
-                ( { model | lastDrawn = model.combination |> List.head }, delay 1000 )
+                ( { model | lastDrawn = model.combination |> List.head }, delay 300 )
 
             Just jld ->
                 let
@@ -174,7 +184,7 @@ drawNumber model =
 
                     Just cei ->
                         if cei < combinationLen - 1 then
-                            ( { model | lastDrawn = getAt (cei + 1) model.combination }, delay 1000 )
+                            ( { model | lastDrawn = getAt (cei + 1) model.combination }, delay 300 )
 
                         else
                             -- https://medium.com/elm-shorts/how-to-turn-a-msg-into-a-cmd-msg-in-elm-5dd095175d84
@@ -184,8 +194,14 @@ drawNumber model =
         ( model, Cmd.none )
 
 
-
--- VIEW
+checkWinners : List Player -> List Combination -> List Player
+checkWinners listPlayers listCombination =
+    let
+        matchWinner : List Int -> List Int -> Bool
+        matchWinner a b =
+            Set.intersect (Set.fromList a) (Set.fromList b) |> Set.size |> (==) 6
+    in
+    listPlayers |> List.filter (\p -> matchWinner p.combination <| List.concat (List.take 1 listCombination))
 
 
 selected : Int -> Combination -> String
@@ -195,30 +211,6 @@ selected n combination =
 
     else
         ""
-
-
-blink : Int -> Maybe Int -> String
-blink n ld =
-    case ld of
-        Nothing ->
-            ""
-
-        Just i ->
-            if i == n then
-                "red"
-
-            else
-                ""
-
-
-foo : Maybe Int -> String
-foo a =
-    case a of
-        Nothing ->
-            ""
-
-        Just s ->
-            String.fromInt s
 
 
 getDrawn : Combination -> Maybe Int -> Bool -> Combination
@@ -248,12 +240,17 @@ chunks : Combination -> List Combination
 chunks comb =
     comb
         |> inits
-        |> removeAt 5
+        |> List.drop 6
+        |> Debug.log "Chunks Log"
 
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
     Sub.none
+
+
+
+-- VIEW
 
 
 view : Model -> Html Msg
@@ -267,11 +264,10 @@ view model =
                  else
                     "Game Is IDLE"
                 )
-            , span [] [ text (foo model.lastDrawn) ]
             ]
-        , button [ onClick StartGame ] [ text "Start Game" ]
-        , button [ onClick AddPlayer, disabled (validateForm model.form) ] [ text "Add Player" ]
-        , input [ onInput SetPlayerName, value model.form.name ] []
+        , button [ onClick StartGame, disabled model.isPlaying ] [ text "Start Game" ]
+        , button [ onClick AddPlayer, disabled (validateForm model.form || model.isPlaying) ] [ text "Add Player" ]
+        , input [ onInput SetPlayerName, disabled model.isPlaying, value model.form.name ] []
         , div []
             (model.players
                 |> List.map
@@ -303,6 +299,7 @@ view model =
                     (\n ->
                         button
                             [ onClick (AddToPlayerCombination n)
+                            , disabled model.isPlaying
                             , style "width" "30px"
                             , style "height" "30px"
                             , style "background-color" (selected n model.form.combination)

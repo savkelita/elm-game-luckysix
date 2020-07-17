@@ -6,7 +6,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import List
-import List.Extra exposing (elemIndex, getAt, removeAt)
+import List.Extra exposing (elemIndex, getAt, inits, removeAt)
 import Process
 import Random
 import Task
@@ -89,6 +89,7 @@ type Msg
     | SetPlayerName String
     | AddToPlayerCombination Int
     | GameInProgress
+    | GameIsOver
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -148,6 +149,9 @@ update msg model =
         GameInProgress ->
             drawNumber model
 
+        GameIsOver ->
+            ( model, Cmd.none )
+
 
 drawNumber : Model -> ( Model, Cmd Msg )
 drawNumber model =
@@ -173,7 +177,8 @@ drawNumber model =
                             ( { model | lastDrawn = getAt (cei + 1) model.combination }, delay 1000 )
 
                         else
-                            ( { model | isPlaying = False, lastDrawn = Nothing, combination = [] }, Cmd.none )
+                            -- https://medium.com/elm-shorts/how-to-turn-a-msg-into-a-cmd-msg-in-elm-5dd095175d84
+                            { model | isPlaying = False, lastDrawn = Nothing } |> update GameIsOver
 
     else
         ( model, Cmd.none )
@@ -215,26 +220,36 @@ foo a =
         Just s ->
             String.fromInt s
 
--- export const getDrawn = (combination: Array<number>, lastDrawn: ?number, isPlaying: boolean): Array<number> => {
---   if (isPlaying && lastDrawn != null) { return combination.slice(0, combination.indexOf(lastDrawn) + 1); } return [];
--- };
+
 getDrawn : Combination -> Maybe Int -> Bool -> Combination
 getDrawn comb ld ip =
     if ip then
         case ld of
             Just jld ->
-                 let
+                let
                     curElemIndex =
                         comb |> elemIndex jld
-                    
-                 in
-                 case curElemIndex of
+                in
+                case curElemIndex of
                     Just cei ->
-                        comb |> removeAt (cei + 1)
-                    Nothing -> []
+                        comb |> List.take (cei + 1)
 
-            Nothing -> []
-    else []
+                    Nothing ->
+                        []
+
+            Nothing ->
+                []
+
+    else
+        []
+
+
+chunks : Combination -> List Combination
+chunks comb =
+    comb
+        |> inits
+        |> removeAt 5
+
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
@@ -267,7 +282,15 @@ view model =
                                 (player.combination
                                     |> List.map
                                         (\n ->
-                                            span [ style "color" (if List.member n (getDrawn model.combination model.lastDrawn model.isPlaying) then "red" else "")]
+                                            span
+                                                [ style "color"
+                                                    (if List.member n (getDrawn model.combination model.lastDrawn model.isPlaying) then
+                                                        "red"
+
+                                                     else
+                                                        ""
+                                                    )
+                                                ]
                                                 [ text (String.fromInt n ++ " ,") ]
                                         )
                                 )
@@ -287,8 +310,14 @@ view model =
                             [ text (String.fromInt n) ]
                     )
             )
-        , div [] [ text (String.fromInt (List.length model.combination)) ]
-        , div [] 
+        , div []
+            (getDrawn model.combination model.lastDrawn model.isPlaying
+                |> List.map
+                    (\n ->
+                        div []
+                            [ text (String.fromInt n) ]
+                    )
+            )
         ]
 
 

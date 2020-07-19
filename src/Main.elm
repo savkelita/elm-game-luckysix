@@ -9,7 +9,6 @@ import List
 import List.Extra exposing (elemIndex, getAt, inits)
 import Process
 import Random
-import Set
 import Task
 
 
@@ -33,6 +32,7 @@ type alias Combination =
 type alias Player =
     { name : String
     , combination : Combination
+    , credit : Int
     }
 
 
@@ -53,6 +53,7 @@ initialForm : Player
 initialForm =
     { name = ""
     , combination = []
+    , credit = 0
     }
 
 
@@ -151,23 +152,14 @@ update msg model =
             drawNumber model
 
         GameIsOver ->
-            -- Check for winners and increase credit.
-            -- Need to write a logic in next interation.
+            -- Compare listOfWinners with ListOfPlayers and update credit.
             let
-                fn : Combination -> List Player -> List Player
-                fn cur acc =
-                    let
-                        win : List Player
-                        win =
-                            checkWinners model.players acc cur
-                    in
-                    win ++ acc
-
-                test =
-                    List.foldl fn [] (chunks model.combination)
+                listOfWinners : List Player
+                listOfWinners =
+                    checkWinners model.players model.combination
 
                 _ =
-                    Debug.log "Winners" test
+                    Debug.log "Winners" listOfWinners
             in
             ( { model | combination = [] }, Cmd.none )
 
@@ -181,10 +173,12 @@ drawNumber model =
 
             Just jld ->
                 let
+                    curElemIndex : Maybe Int
                     curElemIndex =
                         model.combination |> elemIndex jld
 
-                    combinationLen =
+                    combinationLength : Int
+                    combinationLength =
                         model.combination |> List.length
                 in
                 case curElemIndex of
@@ -192,25 +186,48 @@ drawNumber model =
                         ( model, Cmd.none )
 
                     Just cei ->
-                        if cei < combinationLen - 1 then
+                        if cei < combinationLength - 1 then
                             ( { model | lastDrawn = getAt (cei + 1) model.combination }, delay 300 )
 
                         else
-                            -- https://medium.com/elm-shorts/how-to-turn-a-msg-into-a-cmd-msg-in-elm-5dd095175d84
                             { model | isPlaying = False, lastDrawn = Nothing } |> update GameIsOver
 
     else
         ( model, Cmd.none )
 
 
-checkWinners : List Player -> List Player -> Combination -> List Player
-checkWinners listPlayers win combination =
+checkWinners : List Player -> Combination -> List Player
+checkWinners modelListPlayers modelCombination =
     let
-        matchWinner : List Int -> List Int -> Bool
-        matchWinner a b =
-            Set.intersect (Set.fromList a) (Set.fromList b) |> Set.size |> (==) 6
+        fn : Combination -> List Player -> List Player
+        fn currChunk accumulator =
+            let
+                winners =
+                    modelListPlayers
+                        |> List.filter
+                            (\pl ->
+                                let
+                                    skipExisting : Player -> Bool
+                                    skipExisting p =
+                                        accumulator |> List.all (\w -> w.name /= p.name)
+
+                                    checkCombinations : Bool
+                                    checkCombinations =
+                                        pl.combination |> List.all (\n -> currChunk |> List.any (\c -> n == c))
+                                in
+                                checkCombinations && skipExisting pl
+                            )
+
+                bet : Int
+                bet =
+                    100
+            in
+            winners
+                -- Calculate player credit.
+                |> List.map (\p -> { p | credit = currChunk |> List.length |> odds |> (*) bet |> (+) p.credit })
+                |> List.append accumulator
     in
-    listPlayers |> List.filter (\p -> matchWinner p.combination combination && List.all (\z -> z.name /= p.name) win)
+    List.foldl fn [] <| chunks modelCombination
 
 
 selected : Int -> Combination -> String
@@ -250,7 +267,6 @@ chunks comb =
     comb
         |> inits
         |> List.drop 6
-        |> Debug.log "Chunks Log"
 
 
 subscriptions : Model -> Sub Msg
@@ -295,8 +311,9 @@ view model =
                                                      else
                                                         ""
                                                     )
+                                                , style "font-weight" "bold"
                                                 ]
-                                                [ text (String.fromInt n ++ " ,") ]
+                                                [ text (String.fromInt n ++ " ") ]
                                         )
                                 )
                             ]
@@ -330,3 +347,104 @@ view model =
 validateForm : Player -> Bool
 validateForm form =
     not (List.length form.combination == 6 && form.name /= "")
+
+
+
+-- Put inside new module, and write better type.
+
+
+odds : Int -> Int
+odds odd =
+    case odd of
+        6 ->
+            10000
+
+        7 ->
+            7500
+
+        8 ->
+            5000
+
+        9 ->
+            2500
+
+        10 ->
+            1000
+
+        11 ->
+            500
+
+        12 ->
+            300
+
+        13 ->
+            200
+
+        14 ->
+            150
+
+        15 ->
+            100
+
+        16 ->
+            90
+
+        17 ->
+            80
+
+        18 ->
+            70
+
+        19 ->
+            60
+
+        20 ->
+            50
+
+        21 ->
+            40
+
+        22 ->
+            30
+
+        23 ->
+            25
+
+        24 ->
+            20
+
+        25 ->
+            15
+
+        26 ->
+            10
+
+        27 ->
+            9
+
+        28 ->
+            8
+
+        29 ->
+            7
+
+        30 ->
+            6
+
+        31 ->
+            5
+
+        32 ->
+            4
+
+        33 ->
+            3
+
+        34 ->
+            2
+
+        35 ->
+            1
+
+        _ ->
+            0

@@ -60,8 +60,8 @@ init : () -> ( Model, Cmd Msg )
 init _ =
     ( { isPlaying = False
       , lastDrawn = Nothing
-      , players = [ { name = "Marko Savic", combination = [ 1, 2, 3, 4, 5, 6 ] } ] -- For testing purposes; Default []
-      , combination = List.range 1 35 -- For testing purposes; Default []
+      , players = []
+      , combination = []
       , form = initialForm
       }
     , Cmd.none
@@ -154,13 +154,22 @@ update msg model =
             -- Check for winners and increase credit.
             -- Need to write a logic in next interation.
             let
-                winners =
-                    checkWinners model.players (chunks model.combination)
+                fn : Combination -> List Player -> List Player
+                fn cur acc =
+                    let
+                        win : List Player
+                        win =
+                            checkWinners model.players acc cur
+                    in
+                    win ++ acc
+
+                test =
+                    List.foldl fn [] (chunks model.combination)
 
                 _ =
-                    Debug.log "Winners" winners
+                    Debug.log "Winners" test
             in
-            ( model, Cmd.none )
+            ( { model | combination = [] }, Cmd.none )
 
 
 drawNumber : Model -> ( Model, Cmd Msg )
@@ -194,14 +203,14 @@ drawNumber model =
         ( model, Cmd.none )
 
 
-checkWinners : List Player -> List Combination -> List Player
-checkWinners listPlayers listCombination =
+checkWinners : List Player -> List Player -> Combination -> List Player
+checkWinners listPlayers win combination =
     let
         matchWinner : List Int -> List Int -> Bool
         matchWinner a b =
             Set.intersect (Set.fromList a) (Set.fromList b) |> Set.size |> (==) 6
     in
-    listPlayers |> List.filter (\p -> matchWinner p.combination <| List.concat (List.take 1 listCombination))
+    listPlayers |> List.filter (\p -> matchWinner p.combination combination && List.all (\z -> z.name /= p.name) win)
 
 
 selected : Int -> Combination -> String

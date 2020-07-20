@@ -1,12 +1,12 @@
 module Main exposing (..)
 
-import Array exposing (..)
 import Browser
+import Config exposing (gameConfig, odds)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import List
-import List.Extra exposing (elemIndex, getAt, inits)
+import List.Extra exposing (elemIndex, find, getAt, inits)
 import Process
 import Random
 import Task
@@ -30,7 +30,8 @@ type alias Combination =
 
 
 type alias Player =
-    { name : String
+    { id : Int
+    , name : String
     , combination : Combination
     , credit : Int
     }
@@ -40,20 +41,25 @@ type alias Player =
 -- MODEL
 
 
+type alias Form =
+    { name : String
+    , combination : Combination
+    }
+
+
 type alias Model =
     { isPlaying : Bool
     , lastDrawn : Maybe Int
     , players : List Player
     , combination : Combination
-    , form : Player
+    , form : Form
     }
 
 
-initialForm : Player
+initialForm : Form
 initialForm =
     { name = ""
     , combination = []
-    , credit = 0
     }
 
 
@@ -74,6 +80,11 @@ generateRandomNumber =
     Random.generate GameCombination (Random.int 1 48)
 
 
+generatePlayerId : Cmd Msg
+generatePlayerId =
+    Random.generate PlayerId (Random.int 1 1000000)
+
+
 delay : Float -> Cmd Msg
 delay time =
     Process.sleep time
@@ -89,6 +100,7 @@ type Msg
     | GameCombination Int
     | AddPlayer
     | SetPlayerName String
+    | PlayerId Int
     | AddToPlayerCombination Int
     | GameInProgress
     | GameIsOver
@@ -98,16 +110,29 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         AddPlayer ->
-            ( { model
-                | players =
-                    model.form :: model.players
-                , form = initialForm
-              }
-            , Cmd.none
-            )
+            ( model, generatePlayerId )
+
+        PlayerId id ->
+            let
+                newPlayer : Player
+                newPlayer =
+                    { id = id
+                    , name = model.form.name
+                    , combination = model.form.combination
+                    , credit = gameConfig.initialPlayerCredit
+                    }
+            in
+            ( { model | players = newPlayer :: model.players, form = initialForm }, Cmd.none )
 
         StartGame ->
-            ( model, generateRandomNumber )
+            let
+                playerCredit : List Player
+                playerCredit =
+                    model.players
+                        |> List.filter (\p -> p.credit >= gameConfig.bet)
+                        |> List.map (\p -> { p | credit = p.credit - gameConfig.bet })
+            in
+            ( { model | players = playerCredit }, generateRandomNumber )
 
         GameCombination number ->
             if List.length model.combination < 35 then
@@ -118,13 +143,15 @@ update msg model =
                     ( { model | combination = number :: model.combination }, generateRandomNumber )
 
             else
-                ( { model | combination = model.combination, isPlaying = True }, delay 1000 )
+                ( { model | combination = model.combination, isPlaying = True }, delay gameConfig.gameSpeed )
 
         SetPlayerName value ->
             let
+                prevForm : Form
                 prevForm =
                     model.form
 
+                curForm : Form
                 curForm =
                     { prevForm | name = value }
             in
@@ -132,19 +159,17 @@ update msg model =
 
         AddToPlayerCombination value ->
             let
+                prevForm : Form
                 prevForm =
                     model.form
 
+                curForm : Form
                 curForm =
                     if not (List.member value prevForm.combination) && List.length prevForm.combination < 6 then
                         { prevForm | combination = value :: prevForm.combination }
 
                     else
-                        { prevForm
-                            | combination =
-                                prevForm.combination
-                                    |> List.filter (\n -> n /= value)
-                        }
+                        { prevForm | combination = prevForm.combination |> List.filter (\n -> n /= value) }
             in
             ( { model | form = curForm }, Cmd.none )
 
@@ -152,16 +177,30 @@ update msg model =
             drawNumber model
 
         GameIsOver ->
-            -- Compare listOfWinners with ListOfPlayers and update credit.
             let
-                listOfWinners : List Player
-                listOfWinners =
-                    checkWinners model.players model.combination
+                upToDatePlayersCredit : List Player
+                upToDatePlayersCredit =
+                    let
+                        listOfWinners : List Player
+                        listOfWinners =
+                            checkWinners model.players model.combination
 
-                _ =
-                    Debug.log "Winners" listOfWinners
+                        winner : Player -> Maybe Player
+                        winner p =
+                            listOfWinners |> find (\x -> x.id == p.id)
+                    in
+                    model.players
+                        |> List.map
+                            (\player ->
+                                case winner player of
+                                    Nothing ->
+                                        player
+
+                                    Just p ->
+                                        p
+                            )
             in
-            ( { model | combination = [] }, Cmd.none )
+            ( { model | combination = [], players = upToDatePlayersCredit }, Cmd.none )
 
 
 drawNumber : Model -> ( Model, Cmd Msg )
@@ -169,7 +208,7 @@ drawNumber model =
     if model.isPlaying then
         case model.lastDrawn of
             Nothing ->
-                ( { model | lastDrawn = model.combination |> List.head }, delay 300 )
+                ( { model | lastDrawn = model.combination |> List.head }, delay gameConfig.gameSpeed )
 
             Just jld ->
                 let
@@ -187,7 +226,7 @@ drawNumber model =
 
                     Just cei ->
                         if cei < combinationLength - 1 then
-                            ( { model | lastDrawn = getAt (cei + 1) model.combination }, delay 300 )
+                            ( { model | lastDrawn = getAt (cei + 1) model.combination }, delay gameConfig.gameSpeed )
 
                         else
                             { model | isPlaying = False, lastDrawn = Nothing } |> update GameIsOver
@@ -209,7 +248,7 @@ checkWinners modelListPlayers modelCombination =
                                 let
                                     skipExisting : Player -> Bool
                                     skipExisting p =
-                                        accumulator |> List.all (\w -> w.name /= p.name)
+                                        accumulator |> List.all (\w -> w.id /= p.id)
 
                                     checkCombinations : Bool
                                     checkCombinations =
@@ -217,14 +256,10 @@ checkWinners modelListPlayers modelCombination =
                                 in
                                 checkCombinations && skipExisting pl
                             )
-
-                bet : Int
-                bet =
-                    100
             in
             winners
                 -- Calculate player credit.
-                |> List.map (\p -> { p | credit = currChunk |> List.length |> odds |> (*) bet |> (+) p.credit })
+                |> List.map (\p -> { p | credit = currChunk |> List.length |> odds |> (*) gameConfig.bet |> (+) p.credit })
                 |> List.append accumulator
     in
     List.foldl fn [] <| chunks modelCombination
@@ -298,9 +333,10 @@ view model =
                 |> List.map
                     (\player ->
                         div []
-                            [ text player.name
+                            [ text (player.name ++ " " ++ String.fromInt player.credit)
                             , div []
                                 (player.combination
+                                    |> List.sort
                                     |> List.map
                                         (\n ->
                                             span
@@ -313,7 +349,7 @@ view model =
                                                     )
                                                 , style "font-weight" "bold"
                                                 ]
-                                                [ text (String.fromInt n ++ " ") ]
+                                                [ n |> String.fromInt |> (++) " " |> text ]
                                         )
                                 )
                             ]
@@ -344,107 +380,6 @@ view model =
         ]
 
 
-validateForm : Player -> Bool
+validateForm : Form -> Bool
 validateForm form =
     not (List.length form.combination == 6 && form.name /= "")
-
-
-
--- Put inside new module, and write better type.
-
-
-odds : Int -> Int
-odds odd =
-    case odd of
-        6 ->
-            10000
-
-        7 ->
-            7500
-
-        8 ->
-            5000
-
-        9 ->
-            2500
-
-        10 ->
-            1000
-
-        11 ->
-            500
-
-        12 ->
-            300
-
-        13 ->
-            200
-
-        14 ->
-            150
-
-        15 ->
-            100
-
-        16 ->
-            90
-
-        17 ->
-            80
-
-        18 ->
-            70
-
-        19 ->
-            60
-
-        20 ->
-            50
-
-        21 ->
-            40
-
-        22 ->
-            30
-
-        23 ->
-            25
-
-        24 ->
-            20
-
-        25 ->
-            15
-
-        26 ->
-            10
-
-        27 ->
-            9
-
-        28 ->
-            8
-
-        29 ->
-            7
-
-        30 ->
-            6
-
-        31 ->
-            5
-
-        32 ->
-            4
-
-        33 ->
-            3
-
-        34 ->
-            2
-
-        35 ->
-            1
-
-        _ ->
-            0

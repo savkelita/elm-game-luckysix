@@ -1,8 +1,8 @@
 module Config exposing (..)
 
 -- Game Config
-gameConfig : { gameSpeed : number, bet : number, initialPlayerCredit : number }
-gameConfig = { gameSpeed = 1200, bet = 100, initialPlayerCredit = 1000 }
+config : { gameSpeed : number, bet : number, initialPlayerCredit : number }
+config = { gameSpeed = 1000, bet = 100, initialPlayerCredit = 1000 }
 
 -- Game Odds
 odds : Int -> Int

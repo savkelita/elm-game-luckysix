@@ -1,7 +1,8 @@
 module Main exposing (..)
 
+import Ball exposing (getBall)
 import Browser
-import Config exposing (gameConfig, odds)
+import Config exposing (config, odds)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
@@ -75,20 +76,15 @@ init _ =
     )
 
 
-generateRandomNumber : Cmd Msg
-generateRandomNumber =
-    Random.generate GameCombination (Random.int 1 48)
+generateRandomNumber : (Int -> Msg) -> Int -> Int -> Cmd Msg
+generateRandomNumber msg from to =
+    Random.generate msg (Random.int from to)
 
 
-generatePlayerId : Cmd Msg
-generatePlayerId =
-    Random.generate PlayerId (Random.int 1 1000000)
-
-
-delay : Float -> Cmd Msg
-delay time =
+postpone : Float -> Msg -> Cmd Msg
+postpone time msg =
     Process.sleep time
-        |> Task.perform (\_ -> GameInProgress)
+        |> Task.perform (\_ -> msg)
 
 
 
@@ -110,7 +106,7 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         AddPlayer ->
-            ( model, generatePlayerId )
+            ( model, generateRandomNumber PlayerId 1 1000000 )
 
         PlayerId id ->
             let
@@ -119,7 +115,7 @@ update msg model =
                     { id = id
                     , name = model.form.name
                     , combination = model.form.combination
-                    , credit = gameConfig.initialPlayerCredit
+                    , credit = config.initialPlayerCredit
                     }
             in
             ( { model | players = newPlayer :: model.players, form = initialForm }, Cmd.none )
@@ -129,21 +125,21 @@ update msg model =
                 playerCredit : List Player
                 playerCredit =
                     model.players
-                        |> List.filter (\p -> p.credit >= gameConfig.bet)
-                        |> List.map (\p -> { p | credit = p.credit - gameConfig.bet })
+                        |> List.filter (\p -> p.credit >= config.bet)
+                        |> List.map (\p -> { p | credit = p.credit - config.bet })
             in
-            ( { model | players = playerCredit }, generateRandomNumber )
+            ( { model | players = playerCredit }, generateRandomNumber GameCombination 1 48 )
 
         GameCombination number ->
             if List.length model.combination < 35 then
                 if List.member number model.combination then
-                    ( model, generateRandomNumber )
+                    ( model, generateRandomNumber GameCombination 1 48 )
 
                 else
-                    ( { model | combination = number :: model.combination }, generateRandomNumber )
+                    ( { model | combination = number :: model.combination }, generateRandomNumber GameCombination 1 48 )
 
             else
-                ( { model | combination = model.combination, isPlaying = True }, delay gameConfig.gameSpeed )
+                ( { model | combination = model.combination, isPlaying = True }, postpone config.gameSpeed GameInProgress )
 
         SetPlayerName value ->
             let
@@ -197,10 +193,10 @@ update msg model =
                                         player
 
                                     Just p ->
-                                        p
+                                        { p | credit = p.credit + player.credit }
                             )
             in
-            ( { model | combination = [], players = upToDatePlayersCredit }, Cmd.none )
+            ( { model | isPlaying = False, lastDrawn = Nothing, combination = [], players = upToDatePlayersCredit }, Cmd.none )
 
 
 drawNumber : Model -> ( Model, Cmd Msg )
@@ -208,7 +204,7 @@ drawNumber model =
     if model.isPlaying then
         case model.lastDrawn of
             Nothing ->
-                ( { model | lastDrawn = model.combination |> List.head }, delay gameConfig.gameSpeed )
+                ( { model | lastDrawn = model.combination |> List.head }, postpone config.gameSpeed GameInProgress )
 
             Just jld ->
                 let
@@ -226,10 +222,10 @@ drawNumber model =
 
                     Just cei ->
                         if cei < combinationLength - 1 then
-                            ( { model | lastDrawn = getAt (cei + 1) model.combination }, delay gameConfig.gameSpeed )
+                            ( { model | lastDrawn = getAt (cei + 1) model.combination }, postpone config.gameSpeed GameInProgress )
 
                         else
-                            { model | isPlaying = False, lastDrawn = Nothing } |> update GameIsOver
+                            ( model, postpone 7000 GameIsOver )
 
     else
         ( model, Cmd.none )
@@ -258,20 +254,10 @@ checkWinners modelListPlayers modelCombination =
                             )
             in
             winners
-                -- Calculate player credit.
-                |> List.map (\p -> { p | credit = currChunk |> List.length |> odds |> (*) gameConfig.bet |> (+) p.credit })
+                |> List.map (\p -> { p | credit = currChunk |> List.length |> odds |> (*) config.bet })
                 |> List.append accumulator
     in
     List.foldl fn [] <| chunks modelCombination
-
-
-selected : Int -> Combination -> String
-selected n combination =
-    if List.member n combination then
-        "red"
-
-    else
-        ""
 
 
 getDrawn : Combination -> Maybe Int -> Bool -> Combination
@@ -313,73 +299,186 @@ subscriptions _ =
 -- VIEW
 
 
+isSelected : Int -> Combination -> String
+isSelected n combination =
+    if List.member n combination then
+        "btn btn-success"
+
+    else
+        "btn btn-default"
+
+
+isDisabled : Int -> Combination -> Bool
+isDisabled num comb =
+    List.length comb == 6 && not (List.member num comb)
+
+
+isMatched : Combination -> Int -> Bool -> Maybe Int -> String
+isMatched comb playerNumber ip ld =
+    let
+        drawn : Combination
+        drawn =
+            getDrawn comb ld ip
+    in
+    if List.member playerNumber drawn then
+        "player-number animated flash"
+
+    else
+        "player-number"
+
+
+playerForm : Bool -> String
+playerForm ip =
+    if ip then
+        "hide-form"
+
+    else
+        "show-form"
+
+
+drawOdds : Combination -> String
+drawOdds comb =
+    let
+        length : Int
+        length =
+            List.length comb
+    in
+    if length < 6 || length == 35 then
+        ""
+
+    else
+        odds length |> String.fromInt |> (++) "Bet x "
+
+
 view : Model -> Html Msg
 view model =
-    div []
-        [ div []
-            [ text
-                (if model.isPlaying then
-                    "Game Is Live"
-
-                 else
-                    "Game Is IDLE"
-                )
-            ]
-        , button [ onClick StartGame, disabled model.isPlaying ] [ text "Start Game" ]
-        , button [ onClick AddPlayer, disabled (validateForm model.form || model.isPlaying) ] [ text "Add Player" ]
-        , input [ onInput SetPlayerName, disabled model.isPlaying, value model.form.name ] []
-        , div []
-            (model.players
-                |> List.map
-                    (\player ->
-                        div []
-                            [ text (player.name ++ " " ++ String.fromInt player.credit)
-                            , div []
-                                (player.combination
-                                    |> List.sort
-                                    |> List.map
-                                        (\n ->
-                                            span
-                                                [ style "color"
-                                                    (if List.member n (getDrawn model.combination model.lastDrawn model.isPlaying) then
-                                                        "red"
-
-                                                     else
-                                                        ""
-                                                    )
-                                                , style "font-weight" "bold"
-                                                ]
-                                                [ n |> String.fromInt |> (++) " " |> text ]
-                                        )
-                                )
-                            ]
-                    )
-            )
-        , div [ style "width" "200px", style "display" "flex", style "flex-wrap" "wrap" ]
-            (List.range 1 48
-                |> List.map
-                    (\n ->
-                        button
-                            [ onClick (AddToPlayerCombination n)
+    div [ class "container" ]
+        [ div [ class "row" ]
+            [ div [ class "col-md-4" ]
+                [ div
+                    [ class (playerForm model.isPlaying) ]
+                    [ div
+                        [ style "display" "flex"
+                        , style "margin-bottom" "10px"
+                        ]
+                        [ input
+                            [ class "form-control"
+                            , onInput SetPlayerName
                             , disabled model.isPlaying
-                            , style "width" "30px"
-                            , style "height" "30px"
-                            , style "background-color" (selected n model.form.combination)
+                            , value model.form.name
+                            , placeholder "Player name"
+                            , style "margin-right" "5px"
                             ]
-                            [ text (String.fromInt n) ]
+                            []
+                        , button
+                            [ class "btn btn-primary"
+                            , onClick AddPlayer
+                            , disabled (validateForm model.form || model.isPlaying)
+                            ]
+                            [ text "Add Player" ]
+                        ]
+                    , div
+                        [ style "margin-bottom" "20px" ]
+                        (List.range 1 48
+                            |> List.map
+                                (\n ->
+                                    button
+                                        [ onClick (AddToPlayerCombination n)
+                                        , class (isSelected n model.form.combination)
+                                        , disabled (isDisabled n model.form.combination)
+                                        , style "width" "50px"
+                                        , style "height" "50px"
+                                        , style "border-radius" "0px"
+                                        ]
+                                        [ n |> String.fromInt |> text ]
+                                )
+                        )
+                    ]
+                , div
+                    [ style "width" "300px"
+                    , style "display" "flex"
+                    , style "flex-direction" "column"
+                    ]
+                    (model.players
+                        |> List.map
+                            (\player ->
+                                div [ style "margin-bottom" "5px" ]
+                                    [ div
+                                        [ style "display" "flex"
+                                        , style "justify-content" "space-between"
+                                        , style "font-weight" "bold"
+                                        ]
+                                        [ span [] [ text player.name ]
+                                        , span [] [ player.credit |> String.fromInt |> (++) " $" |> text ]
+                                        ]
+                                    , div [ style "display" "flex" ]
+                                        (player.combination
+                                            |> List.sort
+                                            |> List.map
+                                                (\n ->
+                                                    span
+                                                        [ class (isMatched model.combination n model.isPlaying model.lastDrawn) ]
+                                                        [ n |> String.fromInt |> (++) " " |> text ]
+                                                )
+                                        )
+                                    ]
+                            )
                     )
-            )
-        , div []
-            (getDrawn model.combination model.lastDrawn model.isPlaying
-                |> List.map
-                    (\n ->
-                        div []
-                            [ text (String.fromInt n) ]
+                 , div []
+                    (checkWinners model.players (getDrawn model.combination model.lastDrawn model.isPlaying)
+                        |> List.map
+                            (\player ->
+                                div [ style "margin-bottom" "5px" ]
+                                    [ div
+                                        [ style "display" "flex"
+                                        , style "justify-content" "space-between"
+                                        , style "font-weight" "bold"
+                                        ]
+                                        [ span [] [ text player.name ]
+                                        , span [ style "color" "green" ] [ player.credit |> String.fromInt |> (++) " + $" |> text ]
+                                        ]
+                                    ]
+                            )
                     )
-            )
+                ]
+            , div [ class "col-md-2 text-center" ]
+                [ button
+                    [ class "btn btn-success"
+                    , onClick StartGame
+                    , disabled (model.players |> List.length |> (==) 0 |> (||) model.isPlaying)
+                    ]
+                    [ text "Start Game" ]
+                , div []
+                    -- [ h2 [] [ text "Odds" ]
+                    [ h3 [ class "animated tada infinite" ] [ drawOdds (getDrawn model.combination model.lastDrawn model.isPlaying) |> text ]
+                    ]
+                ]
+            , div [ class "col-md-6" ]
+                [ div
+                    [ style "display" "flex"
+                    , style "flex-wrap" "wrap"
+                    , style "width" "400px"
+                    ]
+                    (getDrawn model.combination model.lastDrawn model.isPlaying
+                        |> List.map
+                            (\n ->
+                                div
+                                    [ class (getBall n |> (++) "animated flip ball ") ]
+                                    [ div [ class "ball-inside" ]
+                                        [ span [] [ n |> String.fromInt |> text ]
+                                        ]
+                                    ]
+                            )
+                    )
+                ]
+            ]
         ]
 
 
 validateForm : Form -> Bool
 validateForm form =
-    not (List.length form.combination == 6 && form.name /= "")
+    form.combination
+        |> List.length
+        |> (==) 6
+        |> (&&) (form.name /= "")
+        |> not

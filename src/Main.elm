@@ -125,7 +125,6 @@ update msg model =
                 playerCredit : List Player
                 playerCredit =
                     model.players
-                        |> List.filter (\p -> p.credit >= config.bet)
                         |> List.map (\p -> { p | credit = p.credit - config.bet })
             in
             ( { model | players = playerCredit }, generateRandomNumber GameCombination 1 48 )
@@ -186,6 +185,7 @@ update msg model =
                             listOfWinners |> find (\x -> x.id == p.id)
                     in
                     model.players
+                        |> List.filter (\p -> p.credit >= config.bet)
                         |> List.map
                             (\player ->
                                 case winner player of
@@ -424,22 +424,6 @@ view model =
                                     ]
                             )
                     )
-                 , div []
-                    (checkWinners model.players (getDrawn model.combination model.lastDrawn model.isPlaying)
-                        |> List.map
-                            (\player ->
-                                div [ style "margin-bottom" "5px" ]
-                                    [ div
-                                        [ style "display" "flex"
-                                        , style "justify-content" "space-between"
-                                        , style "font-weight" "bold"
-                                        ]
-                                        [ span [] [ text player.name ]
-                                        , span [ style "color" "green" ] [ player.credit |> String.fromInt |> (++) " + $" |> text ]
-                                        ]
-                                    ]
-                            )
-                    )
                 ]
             , div [ class "col-md-2 text-center" ]
                 [ button
@@ -449,9 +433,28 @@ view model =
                     ]
                     [ text "Start Game" ]
                 , div []
-                    -- [ h2 [] [ text "Odds" ]
                     [ h3 [ class "animated tada infinite" ] [ drawOdds (getDrawn model.combination model.lastDrawn model.isPlaying) |> text ]
                     ]
+                , div []
+                    (checkWinners model.players (getDrawn model.combination model.lastDrawn model.isPlaying)
+                        |> List.map
+                            (\player ->
+                                div
+                                    [ style "margin-bottom" "5px"
+                                    , class "animated fadeInUp"
+                                    ]
+                                    [ div
+                                        [ style "display" "flex"
+                                        , style "flex-direction" "column"
+                                        , style "font-weight" "bold"
+                                        ]
+                                        [ i [ class "fa fa-trophy fa-2x" ] []
+                                        , span [] [ text player.name ]
+                                        , span [ style "color" "green" ] [ player.credit |> String.fromInt |> (++) " + $" |> text ]
+                                        ]
+                                    ]
+                            )
+                    )
                 ]
             , div [ class "col-md-6" ]
                 [ div
